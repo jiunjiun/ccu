@@ -37,11 +37,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Both macOS targets run on macos-latest (Apple Silicon). The Intel
+        # target cross-compiles via rustup's prebuilt x86_64-apple-darwin std,
+        # which avoids the macos-13 (Intel) runner queue (often hours).
         include:
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
     steps:
