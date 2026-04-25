@@ -1,8 +1,9 @@
 name: Release
 
-# Push a tag like `v0.1.0` to trigger this. The workflow builds release
-# binaries for macOS (Apple Silicon + Intel) and Linux x86_64, packages
-# them as tar.gz, and attaches them to a GitHub Release.
+# Push a tag like `v0.1.0` to trigger this. The workflow first creates a
+# GitHub Release for the tag (single job, avoids matrix race), then in
+# parallel builds release binaries for macOS (Apple Silicon + Intel) and
+# Linux x86_64 and uploads each as a tar.gz asset.
 
 on:
   push:
@@ -15,8 +16,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: Release ${{ matrix.target }}
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  upload-assets:
+    name: Upload ${{ matrix.target }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
