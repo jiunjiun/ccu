@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Intel Mac (`x86_64-apple-darwin`) target from the release matrix.
+  Apple Silicon-only on the Mac side from the next tag onwards.
+  Existing v0.1.0 / v0.1.1 Intel binaries are unaffected (GitHub Releases
+  are immutable). Users on Intel Mac can still `cargo install cc-usage`.
+
 ## [0.1.1] — 2026-04-26
 
 Infrastructure-only release. No behavior changes from `0.1.0`; same
