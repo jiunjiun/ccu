@@ -6,6 +6,7 @@ pub mod entry;
 pub mod pricing;
 pub mod render;
 pub mod timezone;
+pub mod update;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
 

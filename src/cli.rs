@@ -64,4 +64,6 @@ pub enum Commands {
         #[arg(long)]
         tz: Option<String>,
     },
+    /// Update ccu in place to the latest GitHub Release for this host.
+    Update,
 }
