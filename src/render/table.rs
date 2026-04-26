@@ -3,7 +3,8 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use tabled::builder::Builder;
-use tabled::settings::Style;
+use tabled::settings::object::Columns;
+use tabled::settings::{Alignment, Modify, Style};
 
 /// Shorten a Claude model name for table display.
 /// `claude-haiku-4-5-20251001` → `haiku-4-5`, `claude-opus-4-7` → `opus-4-7`.
@@ -115,7 +116,13 @@ fn render_table(
         ]);
     }
 
-    b.build().with(Style::modern()).to_string()
+    // First two columns (Date/Month, Models) stay left-aligned text;
+    // numeric columns from index 2 onwards get right alignment so digits
+    // line up under each other and the eye can spot magnitudes quickly.
+    b.build()
+        .with(Style::modern())
+        .with(Modify::new(Columns::new(2..)).with(Alignment::right()))
+        .to_string()
 }
 
 pub fn render_daily_table(buckets: &BTreeMap<String, Bucket>, compact: bool) -> String {
