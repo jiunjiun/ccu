@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-26
+
+Infrastructure-only release. No behavior changes from `0.1.0`; same
+binary, same numerical alignment with `ccusage`.
+
+### Added
+
+- Release pipeline now builds two additional targets:
+  - `aarch64-unknown-linux-gnu` (Linux ARM64)
+  - `x86_64-pc-windows-msvc` (Windows x64)
+- Automated `cargo publish` to crates.io on tag push, gated on a
+  Cargo.toml-version vs. tag-name check.
+
+### Changed
+
+- `actions/checkout` upgraded from v4 → v6 in CI / Release workflows.
+- `tabled` upgraded from 0.16 → 0.20 (visual output unchanged).
+
 ## [0.1.0] — 2026-04-26
 
 Initial release. A Rust port of [`ccusage`](https://github.com/ryoppippi/ccusage)'s
@@ -69,5 +87,6 @@ core data path, aligned to within ~0.003% on real datasets.
 - 73 tests total: 51 unit + 22 integration via `assert_cmd`.
 - 4 fixtures: single_day, with_duplicates, multi_model, cross_tz_boundary.
 
-[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jiunjiun/ccu/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jiunjiun/ccu/releases/tag/v0.1.0
