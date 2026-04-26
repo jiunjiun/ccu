@@ -56,7 +56,9 @@ fn fetch_latest_from_github() -> Option<String> {
         .ok()?
         .fetch()
         .ok()?;
-    releases.first().map(|r| r.version.trim_start_matches('v').to_string())
+    releases
+        .first()
+        .map(|r| r.version.trim_start_matches('v').to_string())
 }
 
 fn newer_than_current(latest: &str) -> bool {
@@ -66,9 +68,8 @@ fn newer_than_current(latest: &str) -> bool {
 }
 
 fn fresh_cached_version() -> Option<String> {
-    read_cache().and_then(|c| {
-        (now_unix() - c.checked_at < CACHE_TTL_SECS).then_some(c.latest_version)
-    })
+    read_cache()
+        .and_then(|c| (now_unix() - c.checked_at < CACHE_TTL_SECS).then_some(c.latest_version))
 }
 
 /// Latest-version checker. Cache-hit settles synchronously without a thread;
@@ -103,10 +104,9 @@ impl UpdateChecker {
 /// it sits visually below the main output instead of competing with it.
 pub fn format_banner(latest: &str) -> String {
     let core = format!("→ ccu v{latest} available, run `ccu update` to upgrade");
-    use std::io::IsTerminal;
-    let use_color = std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal();
-    if use_color {
-        format!("\x1b[38;5;242m{core}\x1b[39m")
+    if crate::stderr_supports_color() {
+        use crate::palette::{DIM_GREY, RESET_FG};
+        format!("{DIM_GREY}{core}{RESET_FG}")
     } else {
         core
     }

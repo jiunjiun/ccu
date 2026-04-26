@@ -1,5 +1,7 @@
-use crate::aggregate::Bucket;
+use crate::aggregate::{last_n_buckets, Bucket, DATE_FMT};
+use crate::palette::{BAR_AZURE, HIGHLIGHT_AMBER, RESET_BOLD_FG, RESET_FG};
 use crate::render::table::fmt_money;
+use chrono::NaiveDate;
 use std::collections::BTreeMap;
 use tabled::builder::Builder;
 use tabled::settings::object::Columns;
@@ -8,15 +10,16 @@ use tabled::settings::{Alignment, Modify, Style};
 /// Render a three-column box-bordered table (Date | Chart | Cost) of daily
 /// costs for the most recent `days` entries in `buckets`. `term_width` is the
 /// available column width; the bar column adjusts to fit.
-pub fn render_chart(buckets: &BTreeMap<String, Bucket>, days: usize, term_width: usize) -> String {
+pub fn render_chart(
+    buckets: &BTreeMap<NaiveDate, Bucket>,
+    days: usize,
+    term_width: usize,
+) -> String {
     if buckets.is_empty() || days == 0 {
         return "(no data)\n".to_string();
     }
 
-    // Newest-first via `.rev().take(days)`, then reverse in place so the table
-    // displays oldest-to-newest top-to-bottom.
-    let mut last_n: Vec<(&String, &Bucket)> = buckets.iter().rev().take(days).collect();
-    last_n.reverse();
+    let last_n = last_n_buckets(buckets, days);
 
     let max_cost = last_n
         .iter()
@@ -49,8 +52,9 @@ pub fn render_chart(buckets: &BTreeMap<String, Bucket>, days: usize, term_width:
     let mut b = Builder::default();
     b.push_record(["Date", "Chart", "Cost (USD)"]);
     for (date, bucket) in &last_n {
+        let date_str = date.format(DATE_FMT).to_string();
         b.push_record([
-            date.as_str(),
+            date_str.as_str(),
             &bar_for(bucket.total_cost),
             &fmt_money(bucket.total_cost),
         ]);
@@ -65,21 +69,17 @@ pub fn render_chart(buckets: &BTreeMap<String, Bucket>, days: usize, term_width:
 /// Append a `Top N` rank label to each data row of the rendered chart string,
 /// outside the right border. Rank 1 also gets a 👑 emoji. Ranking is over the
 /// same N-day window the chart covers, with rank 1 = highest cost.
-pub fn annotate_ranks(s: &str, buckets: &BTreeMap<String, Bucket>, days: usize) -> String {
+pub fn annotate_ranks(s: &str, buckets: &BTreeMap<NaiveDate, Bucket>, days: usize) -> String {
     if buckets.is_empty() || days == 0 {
         return s.to_string();
     }
-    // newest → oldest within the window; stable sort means ties resolve to the
-    // newer day taking the better rank, which is fine.
-    let mut by_cost: Vec<(String, f64)> = buckets
-        .iter()
-        .rev()
-        .take(days)
-        .map(|(d, b)| (d.clone(), b.total_cost))
+    // Stable sort means ties resolve to the older day taking the better rank,
+    // which is fine for tie-breaking.
+    let mut by_cost: Vec<(String, f64)> = last_n_buckets(buckets, days)
+        .into_iter()
+        .map(|(d, b)| (d.format(DATE_FMT).to_string(), b.total_cost))
         .collect();
-    by_cost.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    by_cost.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let ranks: BTreeMap<String, usize> = by_cost
         .into_iter()
         .enumerate()
@@ -110,11 +110,11 @@ pub fn annotate_ranks(s: &str, buckets: &BTreeMap<String, Bucket>, days: usize) 
 /// Wrap the cost cell of the highest-cost row with a 256-color accent so the
 /// top spender stands out at a glance. Operates on the rendered chart string
 /// after `render_chart`; caller decides whether to apply (TTY only).
-pub fn highlight_top_cost(s: &str, buckets: &BTreeMap<String, Bucket>, days: usize) -> String {
+pub fn highlight_top_cost(s: &str, buckets: &BTreeMap<NaiveDate, Bucket>, days: usize) -> String {
     if buckets.is_empty() || days == 0 {
         return s.to_string();
     }
-    let last_n: Vec<(&String, &Bucket)> = buckets.iter().rev().take(days).collect();
+    let last_n = last_n_buckets(buckets, days);
     let max_cost = last_n
         .iter()
         .map(|(_, b)| b.total_cost)
@@ -122,16 +122,12 @@ pub fn highlight_top_cost(s: &str, buckets: &BTreeMap<String, Bucket>, days: usi
     if max_cost == 0.0 {
         return s.to_string();
     }
-    let max_date = match last_n
-        .into_iter()
-        .find(|(_, b)| b.total_cost == max_cost)
-    {
-        Some((d, _)) => d.clone(),
+    let max_date = match last_n.into_iter().find(|(_, b)| b.total_cost == max_cost) {
+        Some((d, _)) => d.format(DATE_FMT).to_string(),
         None => return s.to_string(),
     };
     let cost_str = fmt_money(max_cost);
-    // 256-color #ffaf00 amber + bold for emphasis; reset both attrs together.
-    let highlighted = format!("\x1b[1;38;5;214m{cost_str}\x1b[22;39m");
+    let highlighted = format!("{HIGHLIGHT_AMBER}{cost_str}{RESET_BOLD_FG}");
 
     let mut out = String::with_capacity(s.len() + highlighted.len());
     let mut replaced = false;
@@ -151,8 +147,7 @@ pub fn highlight_top_cost(s: &str, buckets: &BTreeMap<String, Bucket>, days: usi
 /// accent so bars stand out against text. Caller decides when to apply
 /// (TTY only).
 pub fn color_chart_bars(s: &str) -> String {
-    // 256-color #5f87ff (cool azure) — readable on dark and light backgrounds.
-    super::wrap_char_runs(s, |c| c == '█', "\x1b[38;5;69m", "\x1b[39m")
+    super::wrap_char_runs(s, |c| c == '█', BAR_AZURE, RESET_FG)
 }
 
 #[cfg(test)]
@@ -183,10 +178,13 @@ mod tests {
         }
     }
 
-    fn sample(entries: &[(&str, f64)]) -> BTreeMap<String, Bucket> {
+    fn sample(entries: &[(&str, f64)]) -> BTreeMap<NaiveDate, Bucket> {
         let mut map = BTreeMap::new();
         for (date, cost) in entries {
-            map.insert(date.to_string(), b(*cost));
+            map.insert(
+                NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+                b(*cost),
+            );
         }
         map
     }
@@ -212,7 +210,10 @@ mod tests {
         assert!(out.contains("$8.00"));
         assert!(out.contains("█"), "expected bar chars: \n{out}");
         // Box borders are present.
-        assert!(out.contains("┌") && out.contains("│"), "no box chars: \n{out}");
+        assert!(
+            out.contains("┌") && out.contains("│"),
+            "no box chars: \n{out}"
+        );
     }
 
     #[test]
@@ -271,7 +272,10 @@ mod tests {
         // Should NOT include daily-table columns.
         assert!(!out.contains("Models"), "Models leaked: \n{out}");
         assert!(!out.contains("Cache"), "Cache leaked: \n{out}");
-        assert!(!out.contains("Total Tokens"), "Total Tokens leaked: \n{out}");
+        assert!(
+            !out.contains("Total Tokens"),
+            "Total Tokens leaked: \n{out}"
+        );
     }
 
     #[test]

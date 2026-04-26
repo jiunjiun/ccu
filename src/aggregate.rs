@@ -1,7 +1,14 @@
 use crate::entry::UsageEntry;
 use crate::pricing::{cost_of, Usage};
 use crate::timezone::Timezone;
+use chrono::NaiveDate;
 use std::collections::BTreeMap;
+
+/// Strftime patterns shared by aggregate, render, and CLI layers so the day /
+/// month string format stays consistent in JSON output, table rows, and user
+/// input parsing.
+pub const DATE_FMT: &str = "%Y-%m-%d";
+pub const MONTH_FMT: &str = "%Y-%m";
 
 #[derive(Debug, Clone, Default)]
 pub struct ModelTotals {
@@ -37,7 +44,12 @@ fn accumulate(bucket: &mut Bucket, model: &str, usage: &Usage) {
     let cost = cost_of(usage, model);
     bucket.total_cost += cost;
 
-    let m = bucket.models.entry(model.to_string()).or_default();
+    // Allocate the model-name key only on first occurrence within the bucket;
+    // subsequent entries (typically the vast majority) hit the existing entry.
+    let m = match bucket.models.get_mut(model) {
+        Some(m) => m,
+        None => bucket.models.entry(model.to_string()).or_default(),
+    };
     m.input_tokens += usage.input_tokens;
     m.output_tokens += usage.output_tokens;
     m.cache_creation_tokens += usage.cache_creation_input_tokens;
@@ -45,11 +57,11 @@ fn accumulate(bucket: &mut Bucket, model: &str, usage: &Usage) {
     m.cost += cost;
 }
 
-fn group_by<F>(entries: &[UsageEntry], key: F) -> BTreeMap<String, Bucket>
+fn group_by<F>(entries: &[UsageEntry], key: F) -> BTreeMap<NaiveDate, Bucket>
 where
-    F: Fn(&UsageEntry) -> String,
+    F: Fn(&UsageEntry) -> NaiveDate,
 {
-    let mut out: BTreeMap<String, Bucket> = BTreeMap::new();
+    let mut out: BTreeMap<NaiveDate, Bucket> = BTreeMap::new();
     for e in entries {
         let Some(model) = e.message.model.as_deref() else {
             continue;
@@ -68,12 +80,25 @@ where
     out
 }
 
-pub fn group_by_day(entries: &[UsageEntry], tz: Timezone) -> BTreeMap<String, Bucket> {
-    group_by(entries, |e| tz.day_key(e.timestamp))
+pub fn group_by_day(entries: &[UsageEntry], tz: Timezone) -> BTreeMap<NaiveDate, Bucket> {
+    group_by(entries, |e| tz.day_naive(e.timestamp))
 }
 
-pub fn group_by_month(entries: &[UsageEntry], tz: Timezone) -> BTreeMap<String, Bucket> {
-    group_by(entries, |e| tz.month_key(e.timestamp))
+/// Buckets keyed by the first-of-month `NaiveDate`. Render layers format
+/// these as `YYYY-MM` for display.
+pub fn group_by_month(entries: &[UsageEntry], tz: Timezone) -> BTreeMap<NaiveDate, Bucket> {
+    group_by(entries, |e| tz.month_naive(e.timestamp))
+}
+
+/// The most recent `n` buckets in oldest-to-newest order. Useful for windowed
+/// renderers; callers that don't care about order get the same answer.
+pub fn last_n_buckets(
+    buckets: &BTreeMap<NaiveDate, Bucket>,
+    n: usize,
+) -> Vec<(&NaiveDate, &Bucket)> {
+    let mut items: Vec<_> = buckets.iter().rev().take(n).collect();
+    items.reverse();
+    items
 }
 
 #[cfg(test)]
@@ -88,6 +113,10 @@ mod tests {
         parse_line(&line).unwrap()
     }
 
+    fn d(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
     #[test]
     fn group_by_day_buckets_entries_by_key() {
         let tz = Timezone::parse("UTC").unwrap();
@@ -98,9 +127,9 @@ mod tests {
         ];
         let g = group_by_day(&entries, tz);
         assert_eq!(g.len(), 2);
-        assert_eq!(g["2026-04-24"].input_tokens, 4000);
-        assert_eq!(g["2026-04-24"].output_tokens, 6000);
-        assert_eq!(g["2026-04-25"].input_tokens, 500);
+        assert_eq!(g[&d("2026-04-24")].input_tokens, 4000);
+        assert_eq!(g[&d("2026-04-24")].output_tokens, 6000);
+        assert_eq!(g[&d("2026-04-25")].input_tokens, 500);
     }
 
     #[test]
@@ -112,7 +141,7 @@ mod tests {
             e("2026-04-24T03:00:00Z", "claude-opus-4-7", 1_000_000, 0),
         ];
         let g = group_by_day(&entries, tz);
-        let day = &g["2026-04-24"];
+        let day = &g[&d("2026-04-24")];
         assert_eq!(day.models.len(), 2);
         assert_eq!(day.models["claude-opus-4-7"].input_tokens, 2_000_000);
         assert_eq!(day.models["claude-sonnet-4-5"].input_tokens, 1_000_000);
@@ -125,8 +154,8 @@ mod tests {
         let entries = vec![e("2026-04-24T17:00:00Z", "claude-opus-4-7", 1, 1)];
         let utc = group_by_day(&entries, Timezone::parse("UTC").unwrap());
         let tp = group_by_day(&entries, Timezone::parse("Asia/Taipei").unwrap());
-        assert!(utc.contains_key("2026-04-24"));
-        assert!(tp.contains_key("2026-04-25"));
+        assert!(utc.contains_key(&d("2026-04-24")));
+        assert!(tp.contains_key(&d("2026-04-25")));
     }
 
     #[test]
@@ -149,7 +178,7 @@ mod tests {
         ];
         let g = group_by_month(&entries, tz);
         assert_eq!(g.len(), 2);
-        assert_eq!(g["2026-04"].input_tokens, 2);
+        assert_eq!(g[&d("2026-04-01")].input_tokens, 2);
     }
 
     #[test]
@@ -157,7 +186,7 @@ mod tests {
         let entries = vec![e("2026-03-31T17:00:00Z", "claude-opus-4-7", 1, 1)];
         let utc = group_by_month(&entries, Timezone::parse("UTC").unwrap());
         let tp = group_by_month(&entries, Timezone::parse("Asia/Taipei").unwrap());
-        assert!(utc.contains_key("2026-03"));
-        assert!(tp.contains_key("2026-04"));
+        assert!(utc.contains_key(&d("2026-03-01")));
+        assert!(tp.contains_key(&d("2026-04-01")));
     }
 }

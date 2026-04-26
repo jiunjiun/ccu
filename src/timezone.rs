@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
 use chrono_tz::Tz;
 use std::str::FromStr;
 
@@ -18,18 +18,22 @@ impl Timezone {
             .map_err(|_| anyhow::anyhow!("unknown timezone: {s}"))
     }
 
-    pub fn day_key(&self, ts: DateTime<Utc>) -> String {
+    fn date_in_zone(&self, ts: DateTime<Utc>) -> NaiveDate {
         match self {
-            Timezone::Local => ts.with_timezone(&Local).format("%Y-%m-%d").to_string(),
-            Timezone::Named(tz) => ts.with_timezone(tz).format("%Y-%m-%d").to_string(),
+            Timezone::Local => ts.with_timezone(&Local).date_naive(),
+            Timezone::Named(tz) => ts.with_timezone(tz).date_naive(),
         }
     }
 
-    pub fn month_key(&self, ts: DateTime<Utc>) -> String {
-        match self {
-            Timezone::Local => ts.with_timezone(&Local).format("%Y-%m").to_string(),
-            Timezone::Named(tz) => ts.with_timezone(tz).format("%Y-%m").to_string(),
-        }
+    pub fn day_naive(&self, ts: DateTime<Utc>) -> NaiveDate {
+        self.date_in_zone(ts)
+    }
+
+    /// Return the first-of-month `NaiveDate` for this timestamp in `self`'s
+    /// zone — used as a stable, ordered key for monthly buckets.
+    pub fn month_naive(&self, ts: DateTime<Utc>) -> NaiveDate {
+        let d = self.date_in_zone(ts);
+        NaiveDate::from_ymd_opt(d.year(), d.month(), 1).expect("year/month from date_in_zone")
     }
 }
 
@@ -41,6 +45,10 @@ mod tests {
         DateTime::parse_from_rfc3339(iso)
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    fn naive(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
     #[test]
@@ -62,32 +70,40 @@ mod tests {
     }
 
     #[test]
-    fn day_key_named_tz_handles_crossing_midnight() {
+    fn day_naive_named_tz_handles_crossing_midnight() {
         // 17:00 UTC on Apr 24 = 01:00 Apr 25 in Asia/Taipei (UTC+8)
         let tz = Timezone::parse("Asia/Taipei").unwrap();
-        assert_eq!(tz.day_key(at("2026-04-24T17:00:00Z")), "2026-04-25");
+        assert_eq!(
+            tz.day_naive(at("2026-04-24T17:00:00Z")),
+            naive("2026-04-25")
+        );
     }
 
     #[test]
-    fn day_key_named_tz_stays_same_day_before_midnight() {
+    fn day_naive_named_tz_stays_same_day_before_midnight() {
         let tz = Timezone::parse("Asia/Taipei").unwrap();
-        // 15:00 UTC = 23:00 same day in TP
-        assert_eq!(tz.day_key(at("2026-04-24T15:00:00Z")), "2026-04-24");
+        assert_eq!(
+            tz.day_naive(at("2026-04-24T15:00:00Z")),
+            naive("2026-04-24")
+        );
     }
 
     #[test]
-    fn month_key_named_tz_handles_crossing_month() {
+    fn month_naive_named_tz_handles_crossing_month() {
         // 2026-03-31T17:00:00Z = 2026-04-01 01:00 in Asia/Taipei
         let tz = Timezone::parse("Asia/Taipei").unwrap();
-        assert_eq!(tz.month_key(at("2026-03-31T17:00:00Z")), "2026-04");
+        assert_eq!(
+            tz.month_naive(at("2026-03-31T17:00:00Z")),
+            naive("2026-04-01")
+        );
     }
 
     #[test]
-    fn day_key_utc_differs_from_taipei_at_boundary() {
+    fn day_naive_utc_differs_from_taipei_at_boundary() {
         let utc = Timezone::parse("UTC").unwrap();
         let tp = Timezone::parse("Asia/Taipei").unwrap();
         let ts = at("2026-04-24T17:00:00Z");
-        assert_eq!(utc.day_key(ts), "2026-04-24");
-        assert_eq!(tp.day_key(ts), "2026-04-25");
+        assert_eq!(utc.day_naive(ts), naive("2026-04-24"));
+        assert_eq!(tp.day_naive(ts), naive("2026-04-25"));
     }
 }

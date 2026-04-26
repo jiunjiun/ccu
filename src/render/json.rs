@@ -1,11 +1,12 @@
-use crate::aggregate::{Bucket, ModelTotals};
+use crate::aggregate::{Bucket, ModelTotals, DATE_FMT, MONTH_FMT};
+use chrono::NaiveDate;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DailyRow<'a> {
-    date: &'a str,
+    date: String,
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_tokens: u64,
@@ -19,7 +20,7 @@ struct DailyRow<'a> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MonthlyRow<'a> {
-    month: &'a str,
+    month: String,
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_tokens: u64,
@@ -65,11 +66,11 @@ fn breakdowns(models: &BTreeMap<String, ModelTotals>) -> Vec<ModelBreakdown<'_>>
         .collect()
 }
 
-pub fn render_daily_json(buckets: &BTreeMap<String, Bucket>) -> String {
+pub fn render_daily_json(buckets: &BTreeMap<NaiveDate, Bucket>) -> String {
     let rows: Vec<DailyRow> = buckets
         .iter()
         .map(|(date, b)| DailyRow {
-            date,
+            date: date.format(DATE_FMT).to_string(),
             input_tokens: b.input_tokens,
             output_tokens: b.output_tokens,
             cache_creation_tokens: b.cache_creation_tokens,
@@ -84,11 +85,11 @@ pub fn render_daily_json(buckets: &BTreeMap<String, Bucket>) -> String {
         .expect("DailyEnvelope contains only owned scalar types; serialization cannot fail")
 }
 
-pub fn render_monthly_json(buckets: &BTreeMap<String, Bucket>) -> String {
+pub fn render_monthly_json(buckets: &BTreeMap<NaiveDate, Bucket>) -> String {
     let rows: Vec<MonthlyRow> = buckets
         .iter()
         .map(|(month, b)| MonthlyRow {
-            month,
+            month: month.format(MONTH_FMT).to_string(),
             input_tokens: b.input_tokens,
             output_tokens: b.output_tokens,
             cache_creation_tokens: b.cache_creation_tokens,
@@ -108,7 +109,11 @@ mod tests {
     use super::*;
     use crate::aggregate::{Bucket, ModelTotals};
 
-    fn sample_daily() -> BTreeMap<String, Bucket> {
+    fn d(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn sample_daily() -> BTreeMap<NaiveDate, Bucket> {
         let mut b = Bucket {
             input_tokens: 340,
             output_tokens: 84592,
@@ -128,7 +133,7 @@ mod tests {
             },
         );
         let mut map = BTreeMap::new();
-        map.insert("2026-04-24".to_string(), b);
+        map.insert(d("2026-04-24"), b);
         map
     }
 
@@ -163,8 +168,8 @@ mod tests {
     #[test]
     fn monthly_json_uses_month_key_not_date() {
         let mut m = sample_daily();
-        let v = m.remove("2026-04-24").unwrap();
-        m.insert("2026-04".to_string(), v);
+        let v = m.remove(&d("2026-04-24")).unwrap();
+        m.insert(d("2026-04-01"), v);
         let s = render_monthly_json(&m);
         assert!(s.contains("\"monthly\""));
         assert!(s.contains("\"month\""));

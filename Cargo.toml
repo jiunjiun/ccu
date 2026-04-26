@@ -31,6 +31,7 @@ anyhow        = "1"
 regex         = "1"
 terminal_size = "0.4"
 dirs          = "5"
+rayon         = "1"
 self_update   = { version = "0.42", default-features = false, features = ["rustls", "compression-flate2", "compression-zip-deflate", "archive-tar", "archive-zip"] }
 
 [dev-dependencies]

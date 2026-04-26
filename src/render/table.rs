@@ -1,4 +1,5 @@
-use crate::aggregate::Bucket;
+use crate::aggregate::{Bucket, DATE_FMT, MONTH_FMT};
+use chrono::NaiveDate;
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -46,9 +47,10 @@ fn models_summary(bucket: &Bucket) -> String {
 }
 
 fn render_table(
-    buckets: &BTreeMap<String, Bucket>,
+    buckets: &BTreeMap<NaiveDate, Bucket>,
     compact: bool,
     first_col_label: &str,
+    key_format: &str,
 ) -> String {
     let mut b = Builder::default();
     if compact {
@@ -68,9 +70,10 @@ fn render_table(
 
     let mut totals = Bucket::default();
     for (key, bucket) in buckets {
+        let key_str = key.format(key_format).to_string();
         if compact {
             b.push_record([
-                key.as_str(),
+                key_str.as_str(),
                 &models_summary(bucket),
                 &fmt_int(bucket.input_tokens),
                 &fmt_int(bucket.output_tokens),
@@ -78,7 +81,7 @@ fn render_table(
             ]);
         } else {
             b.push_record([
-                key.as_str(),
+                key_str.as_str(),
                 &models_summary(bucket),
                 &fmt_int(bucket.input_tokens),
                 &fmt_int(bucket.output_tokens),
@@ -125,23 +128,21 @@ fn render_table(
         .to_string()
 }
 
-pub fn render_daily_table(buckets: &BTreeMap<String, Bucket>, compact: bool) -> String {
-    render_table(buckets, compact, "Date")
+pub fn render_daily_table(buckets: &BTreeMap<NaiveDate, Bucket>, compact: bool) -> String {
+    render_table(buckets, compact, "Date", DATE_FMT)
 }
 
-pub fn render_monthly_table(buckets: &BTreeMap<String, Bucket>, compact: bool) -> String {
-    render_table(buckets, compact, "Month")
+pub fn render_monthly_table(buckets: &BTreeMap<NaiveDate, Bucket>, compact: bool) -> String {
+    render_table(buckets, compact, "Month", MONTH_FMT)
 }
 
 /// Wrap Unicode box-drawing characters with ANSI dim codes so borders render
 /// less bright than cell contents. Caller decides whether to apply (typically
 /// only when stdout is a terminal and `NO_COLOR` is unset).
 pub fn dim_border_chars(s: &str) -> String {
-    // 256-color grey (#6c6c6c); dimmer than ANSI `[2m` (~#808080) but still
-    // visible against a dark terminal background. Reset only the foreground
-    // (`[39m`) so we don't clobber other attrs.
+    use crate::palette::{DIM_GREY, RESET_FG};
     const BOX_CHARS: &[char] = &['─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼'];
-    super::wrap_char_runs(s, |c| BOX_CHARS.contains(&c), "\x1b[38;5;242m", "\x1b[39m")
+    super::wrap_char_runs(s, |c| BOX_CHARS.contains(&c), DIM_GREY, RESET_FG)
 }
 
 #[cfg(test)]
@@ -150,7 +151,11 @@ mod tests {
     use crate::aggregate::{Bucket, ModelTotals};
     use std::collections::BTreeMap;
 
-    fn sample_buckets() -> BTreeMap<String, Bucket> {
+    fn d(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn sample_buckets() -> BTreeMap<NaiveDate, Bucket> {
         let mut b24 = Bucket {
             input_tokens: 340,
             output_tokens: 84592,
@@ -171,7 +176,7 @@ mod tests {
         );
 
         let mut out = BTreeMap::new();
-        out.insert("2026-04-24".to_string(), b24);
+        out.insert(d("2026-04-24"), b24);
         out
     }
 
@@ -278,8 +283,8 @@ mod tests {
     #[test]
     fn monthly_table_uses_month_header_not_date() {
         let mut buckets = sample_buckets();
-        let v = buckets.remove("2026-04-24").unwrap();
-        buckets.insert("2026-04".to_string(), v);
+        let v = buckets.remove(&d("2026-04-24")).unwrap();
+        buckets.insert(d("2026-04-01"), v);
         let table = render_monthly_table(&buckets, false);
         assert!(table.contains("Month"), "Month header missing: \n{table}");
         assert!(

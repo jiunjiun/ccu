@@ -3,6 +3,7 @@ pub mod cli;
 pub mod dedup;
 pub mod discover;
 pub mod entry;
+pub mod palette;
 pub mod pricing;
 pub mod render;
 pub mod timezone;
@@ -21,15 +22,25 @@ use crate::render::json::{render_daily_json, render_monthly_json};
 use crate::render::table::{dim_border_chars, render_daily_table, render_monthly_table};
 use crate::timezone::Timezone;
 
-/// Dim ANSI escapes only when stdout is a TTY and NO_COLOR is unset.
-/// Piping to a file or another command gets clean plain-text output.
-fn should_use_color() -> bool {
+fn no_color_env() -> bool {
+    std::env::var_os("NO_COLOR").is_some()
+}
+
+/// Whether stdout should receive ANSI color: TTY + `NO_COLOR` unset. Piping to
+/// a file or another command gets clean plain-text output.
+pub fn stdout_supports_color() -> bool {
     use std::io::IsTerminal;
-    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+    !no_color_env() && std::io::stdout().is_terminal()
+}
+
+/// Same rule for stderr (used by the version-check banner).
+pub fn stderr_supports_color() -> bool {
+    use std::io::IsTerminal;
+    !no_color_env() && std::io::stderr().is_terminal()
 }
 
 fn maybe_dim(table: String) -> String {
-    if should_use_color() {
+    if stdout_supports_color() {
         dim_border_chars(&table)
     } else {
         table
@@ -43,14 +54,15 @@ fn terminal_width() -> usize {
 }
 
 fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
+    use rayon::prelude::*;
     let root = scan_root()?;
 
-    // Sort files by their earliest entry timestamp before dedup. When the same
-    // (msgId, requestId) pair appears across files, the FIRST-encountered entry
-    // wins, so file order is load-bearing. ccusage sorts files this way too;
-    // match that ordering for numeric parity.
+    // Parse files in parallel — they're independent JSONL files. Then sort
+    // by earliest entry timestamp before dedup so that when the same
+    // (msgId, requestId) appears across files, the FIRST-encountered entry
+    // wins (matches ccusage for numeric parity).
     let mut files: Vec<(Option<DateTime<Utc>>, Vec<UsageEntry>)> = discover_jsonl(&root)
-        .into_iter()
+        .into_par_iter()
         .map(|p| {
             let entries = parse_file(&p).unwrap_or_default();
             let earliest = entries.iter().map(|e| e.timestamp).min();
@@ -68,26 +80,26 @@ fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
     Ok(dedup_entries(entries))
 }
 
+fn sum_cost_where<F: Fn(DateTime<Utc>) -> bool>(entries: &[UsageEntry], predicate: F) -> f64 {
+    entries
+        .iter()
+        .filter(|e| predicate(e.timestamp))
+        .filter_map(|e| {
+            let model = e.message.model.as_deref()?;
+            let usage = e.message.usage.as_ref()?;
+            Some(cost_of(usage, model))
+        })
+        .fold(0.0_f64, |acc, x| acc + x)
+}
+
 pub fn run_today(date: Option<&str>) -> anyhow::Result<()> {
     let target = match date {
         Some(s) => NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map_err(|e| anyhow::anyhow!("invalid date {s:?}: {e}"))?,
         None => Local::now().date_naive(),
     };
-
     let entries = load_entries()?;
-
-    let total: f64 = entries
-        .iter()
-        .filter(|e| local_day(e.timestamp) == target)
-        .filter_map(|e| {
-            let model = e.message.model.as_deref()?;
-            let usage = e.message.usage.as_ref()?;
-            Some(cost_of(usage, model))
-        })
-        .fold(0.0_f64, |acc, x| acc + x);
-
-    print_bare_cost(total);
+    print_bare_cost(sum_cost_where(&entries, |ts| local_day(ts) == target));
     Ok(())
 }
 
@@ -96,20 +108,8 @@ pub fn run_month(month: Option<&str>) -> anyhow::Result<()> {
         Some(s) => validate_month(s)?.to_string(),
         None => Local::now().format("%Y-%m").to_string(),
     };
-
     let entries = load_entries()?;
-
-    let total: f64 = entries
-        .iter()
-        .filter(|e| local_month(e.timestamp) == target)
-        .filter_map(|e| {
-            let model = e.message.model.as_deref()?;
-            let usage = e.message.usage.as_ref()?;
-            Some(cost_of(usage, model))
-        })
-        .fold(0.0_f64, |acc, x| acc + x);
-
-    print_bare_cost(total);
+    print_bare_cost(sum_cost_where(&entries, |ts| local_month(ts) == target));
     Ok(())
 }
 
@@ -133,7 +133,7 @@ pub fn run_chart(days: u32, tz: Option<&str>) -> anyhow::Result<()> {
 
     let n = days as usize;
     let mut out = render_chart(&buckets, n, terminal_width());
-    if should_use_color() {
+    if stdout_supports_color() {
         out = color_chart_bars(&out);
         out = dim_border_chars(&out);
         out = highlight_top_cost(&out, &buckets, n);

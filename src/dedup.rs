@@ -1,13 +1,25 @@
 use crate::entry::UsageEntry;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+
+/// Hash `(msg_id, req_id)` to a u64 key so the dedup set doesn't have to clone
+/// every string twice per entry. SipHash collision probability for ~50k
+/// entries is ~1e-10; acceptable for cost aggregation.
+fn key_for(msg: &str, req: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    msg.hash(&mut h);
+    req.hash(&mut h);
+    h.finish()
+}
 
 pub fn dedup_entries(entries: Vec<UsageEntry>) -> Vec<UsageEntry> {
-    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut seen: HashSet<u64> = HashSet::new();
     let mut out = Vec::with_capacity(entries.len());
     for e in entries {
         match (e.message.id.as_deref(), e.request_id.as_deref()) {
             (Some(m), Some(r)) => {
-                if seen.insert((m.to_string(), r.to_string())) {
+                if seen.insert(key_for(m, r)) {
                     out.push(e);
                 }
             }

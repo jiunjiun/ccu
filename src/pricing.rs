@@ -32,7 +32,12 @@ fn table() -> &'static [Tier] {
     T.get_or_init(|| {
         vec![
             Tier {
-                pattern: Regex::new(r"opus-4-[5-9]").unwrap(),
+                // Why: Opus 4.5 (Nov 2025) shifted to a $5 input tier; older
+                // Opus models stay at $15. The trailing `-` separator after
+                // the major version is load-bearing — without it, `\d{2,}`
+                // would greedily match the date digits in legacy IDs like
+                // `claude-3-opus-20240229` and misprice them at the new tier.
+                pattern: Regex::new(r"opus-(4-([5-9]|\d{2,})|([5-9]|\d{2,})-)").unwrap(),
                 price: Price {
                     input: 5.0,
                     output: 25.0,
@@ -121,6 +126,26 @@ mod tests {
     fn opus_4_5_matches_new_tier() {
         // Opus 4.5 (Nov 2025) was the first Opus at the $5 tier.
         assert_eq!(price_for("claude-opus-4-5-20251101").input, 5.0);
+    }
+
+    #[test]
+    fn opus_double_digit_minor_matches_new_tier() {
+        // Future-proof: opus-4-10..4-99 should not silently fall to legacy.
+        assert_eq!(price_for("claude-opus-4-10").input, 5.0);
+        assert_eq!(price_for("claude-opus-4-99").input, 5.0);
+    }
+
+    #[test]
+    fn opus_major_5_plus_matches_new_tier() {
+        assert_eq!(price_for("claude-opus-5-0").input, 5.0);
+        assert_eq!(price_for("claude-opus-10-0").input, 5.0);
+    }
+
+    #[test]
+    fn opus_4_below_5_minor_falls_to_legacy() {
+        // 4-0..4-4 don't exist in practice but if Anthropic ever ships one
+        // it should price as legacy until we explicitly add a tier.
+        assert_eq!(price_for("claude-opus-4-2").input, 15.0);
     }
 
     #[test]
