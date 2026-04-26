@@ -1,13 +1,18 @@
 [package]
-name = "ccu"
+name = "cc-usage"
 version = "0.1.0"
 edition = "2021"
-description = "Rust CLI that mirrors ccusage against ~/.claude/projects"
+description = "A fast, local Claude Code usage and cost tracker — Rust port of ccusage"
 license = "MIT"
 repository = "https://github.com/jiunjiun/ccu"
-publish = false
+homepage = "https://github.com/jiunjiun/ccu"
+documentation = "https://github.com/jiunjiun/ccu#readme"
+readme = "README.md"
+keywords = ["claude", "anthropic", "cli", "usage", "cost"]
+categories = ["command-line-utilities"]
 
 [lib]
+name = "ccu"
 path = "src/lib.rs"
 
 [[bin]]
