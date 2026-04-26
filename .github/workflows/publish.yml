@@ -1,0 +1,39 @@
+name: Publish to crates.io
+
+# Push a tag like `v0.1.1` to trigger this. Publishes the crate to
+# crates.io using the CRATES_TOKEN repo secret. Set up that secret first
+# from a token at https://crates.io/me with `publish-update` scope:
+#
+#   gh secret set CRATES_TOKEN --repo jiunjiun/ccu
+#
+# This runs in parallel with the Release workflow; the GitHub Release
+# job and crates.io publish are independent and either can fail without
+# blocking the other.
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag $tag does not match Cargo.toml version $manifest"
+            exit 1
+          fi
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+        run: cargo publish

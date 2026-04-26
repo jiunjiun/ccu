@@ -2,8 +2,8 @@ name: Release
 
 # Push a tag like `v0.1.0` to trigger this. The workflow first creates a
 # GitHub Release for the tag (single job, avoids matrix race), then in
-# parallel builds release binaries for macOS (Apple Silicon + Intel) and
-# Linux x86_64 and uploads each as a tar.gz asset.
+# parallel builds release binaries for five targets (macOS arm/x86, Linux
+# x86/arm, Windows x86) and uploads each as a tar.gz / zip asset.
 
 on:
   push:
@@ -37,9 +37,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both macOS targets run on macos-latest (Apple Silicon). The Intel
-        # target cross-compiles via rustup's prebuilt x86_64-apple-darwin std,
-        # which avoids the macos-13 (Intel) runner queue (often hours).
+        # Both macOS targets run on macos-latest (Apple Silicon). Intel mac
+        # cross-compiles via rustup's prebuilt x86_64-apple-darwin std,
+        # avoiding the macos-13 runner queue. ARM Linux uses `cross` (Docker)
+        # automatically via taiki-e/upload-rust-binary-action.
         include:
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -47,6 +48,10 @@ jobs:
             os: macos-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
