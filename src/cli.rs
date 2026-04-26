@@ -5,7 +5,8 @@ use clap::{ArgAction, Parser, Subcommand};
     name = "ccu",
     version,
     about = "Claude Code usage/cost tracker aligned with ccusage",
-    disable_version_flag = true
+    disable_version_flag = true,
+    disable_help_subcommand = true
 )]
 // Unit-typed field below is a clap trick to rewire `--version` from the default
 // short `-V` to lowercase `-v`; not a non-exhaustive pattern.
@@ -33,8 +34,10 @@ pub enum Commands {
     },
     /// Print a daily usage table across all known days.
     Daily {
+        /// Emit ccusage-compatible JSON instead of a table.
         #[arg(long)]
         json: bool,
+        /// Five-column table (Date, Models, Input, Output, Cost). Drops cache columns. Ignored when --json is set.
         #[arg(long)]
         compact: bool,
         /// IANA timezone (e.g., UTC, Asia/Taipei). Defaults to system local TZ.
@@ -43,8 +46,10 @@ pub enum Commands {
     },
     /// Print a monthly usage table across all known months.
     Monthly {
+        /// Emit ccusage-compatible JSON instead of a table.
         #[arg(long)]
         json: bool,
+        /// Five-column table (Month, Models, Input, Output, Cost). Drops cache columns. Ignored when --json is set.
         #[arg(long)]
         compact: bool,
         /// IANA timezone (e.g., UTC, Asia/Taipei). Defaults to system local TZ.
