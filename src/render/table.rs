@@ -29,7 +29,7 @@ fn fmt_int(n: u64) -> String {
     out
 }
 
-fn fmt_money(n: f64) -> String {
+pub(crate) fn fmt_money(n: f64) -> String {
     let rounded = (n * 100.0).round() / 100.0;
     let whole = rounded.trunc() as i64;
     let cents = (rounded.fract().abs() * 100.0).round() as i64;
@@ -140,30 +140,8 @@ pub fn dim_border_chars(s: &str) -> String {
     // 256-color grey (#6c6c6c); dimmer than ANSI `[2m` (~#808080) but still
     // visible against a dark terminal background. Reset only the foreground
     // (`[39m`) so we don't clobber other attrs.
-    const DIM: &str = "\x1b[38;5;242m";
-    const RESET: &str = "\x1b[39m";
     const BOX_CHARS: &[char] = &['─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼'];
-    let mut out = String::with_capacity(s.len() + 32);
-    let mut in_dim = false;
-    for c in s.chars() {
-        let is_border = BOX_CHARS.contains(&c);
-        match (is_border, in_dim) {
-            (true, false) => {
-                out.push_str(DIM);
-                in_dim = true;
-            }
-            (false, true) => {
-                out.push_str(RESET);
-                in_dim = false;
-            }
-            _ => {}
-        }
-        out.push(c);
-    }
-    if in_dim {
-        out.push_str(RESET);
-    }
-    out
+    super::wrap_char_runs(s, |c| BOX_CHARS.contains(&c), "\x1b[38;5;242m", "\x1b[39m")
 }
 
 #[cfg(test)]

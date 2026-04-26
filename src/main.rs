@@ -13,5 +13,6 @@ fn main() -> Result<()> {
         Some(Commands::Monthly { json, compact, tz }) => {
             ccu::run_monthly(json, compact, tz.as_deref())
         }
+        Some(Commands::Chart { days, tz }) => ccu::run_chart(days.unwrap_or(30), tz.as_deref()),
     }
 }

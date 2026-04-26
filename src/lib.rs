@@ -15,23 +15,30 @@ use crate::discover::{discover_jsonl, scan_root};
 use crate::entry::{parse_file, UsageEntry};
 use crate::pricing::cost_of;
 use crate::render::bare::print_bare_cost;
+use crate::render::chart::{annotate_ranks, color_chart_bars, highlight_top_cost, render_chart};
 use crate::render::json::{render_daily_json, render_monthly_json};
 use crate::render::table::{dim_border_chars, render_daily_table, render_monthly_table};
 use crate::timezone::Timezone;
 
-/// Dim borders only when stdout is a TTY and NO_COLOR is unset.
+/// Dim ANSI escapes only when stdout is a TTY and NO_COLOR is unset.
 /// Piping to a file or another command gets clean plain-text output.
-fn should_dim_borders() -> bool {
+fn should_use_color() -> bool {
     use std::io::IsTerminal;
     std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
 fn maybe_dim(table: String) -> String {
-    if should_dim_borders() {
+    if should_use_color() {
         dim_border_chars(&table)
     } else {
         table
     }
+}
+
+fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(terminal_size::Width(w), _)| w as usize)
+        .unwrap_or(80)
 }
 
 fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
@@ -115,6 +122,23 @@ pub fn run_daily(json: bool, compact: bool, tz: Option<&str>) -> anyhow::Result<
     } else {
         println!("{}", maybe_dim(render_daily_table(&buckets, compact)));
     }
+    Ok(())
+}
+
+pub fn run_chart(days: u32, tz: Option<&str>) -> anyhow::Result<()> {
+    let tz = resolve_tz(tz)?;
+    let entries = load_entries()?;
+    let buckets = group_by_day(&entries, tz);
+
+    let n = days as usize;
+    let mut out = render_chart(&buckets, n, terminal_width());
+    if should_use_color() {
+        out = color_chart_bars(&out);
+        out = dim_border_chars(&out);
+        out = highlight_top_cost(&out, &buckets, n);
+    }
+    out = annotate_ranks(&out, &buckets, n);
+    println!("{out}");
     Ok(())
 }
 

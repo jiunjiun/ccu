@@ -56,4 +56,12 @@ pub enum Commands {
         #[arg(long)]
         tz: Option<String>,
     },
+    /// Print a horizontal bar chart of recent daily costs.
+    Chart {
+        /// How many recent days to include. Defaults to 30.
+        days: Option<u32>,
+        /// IANA timezone (e.g., UTC, Asia/Taipei). Defaults to system local TZ.
+        #[arg(long)]
+        tz: Option<String>,
+    },
 }
