@@ -23,7 +23,44 @@
 
 ## Install
 
-`ccu` is not on crates.io. Install from source:
+The crate is published as **`cc-usage`**; the binary is **`ccu`**.
+
+### From crates.io (recommended)
+
+```bash
+cargo install cc-usage
+```
+
+Compiles from source on your machine (~30–60 s on Apple Silicon),
+installs to `~/.cargo/bin/ccu`. If `~/.cargo/bin` isn't on your `PATH`,
+add it to your shell rc:
+
+```bash
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### From a prebuilt binary (no Rust toolchain needed)
+
+Pick the asset for your platform from the [latest release](https://github.com/jiunjiun/ccu/releases/latest):
+
+```bash
+# Apple Silicon Mac
+curl -L https://github.com/jiunjiun/ccu/releases/latest/download/ccu-aarch64-apple-darwin.tar.gz | tar xz
+sudo install ccu-aarch64-apple-darwin/ccu /usr/local/bin/ccu
+
+# Linux x86_64
+curl -L https://github.com/jiunjiun/ccu/releases/latest/download/ccu-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo install ccu-x86_64-unknown-linux-gnu/ccu /usr/local/bin/ccu
+
+# Linux ARM64
+curl -L https://github.com/jiunjiun/ccu/releases/latest/download/ccu-aarch64-unknown-linux-gnu.tar.gz | tar xz
+sudo install ccu-aarch64-unknown-linux-gnu/ccu /usr/local/bin/ccu
+
+# Windows x64 — extract ccu-x86_64-pc-windows-msvc.zip and put ccu.exe on PATH
+```
+
+### From source
 
 ```bash
 git clone https://github.com/jiunjiun/ccu ~/git/ccu
@@ -31,19 +68,25 @@ cd ~/git/ccu
 cargo install --path .
 ```
 
-This puts `ccu` in `~/.cargo/bin/` (already on your `PATH` if you have any other cargo-installed tool). Verify:
+### Verify
 
 ```bash
-ccu -v          # ccu 0.1.0
-ccu             # prints today's daily table
+ccu --version       # ccu 0.1.1
+ccu                 # prints today's daily table
 ```
-
-To uninstall: `cargo uninstall ccu`.
 
 ### Update
 
 ```bash
-cd ~/git/ccu && git pull && cargo install --path . --force
+cargo install cc-usage --force
+```
+
+Or, if you installed from source, `cd ~/git/ccu && git pull && cargo install --path . --force`.
+
+### Uninstall
+
+```bash
+cargo uninstall cc-usage
 ```
 
 ---
