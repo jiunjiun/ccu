@@ -40,4 +40,5 @@ predicates = "3"
 tempfile   = "3"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1

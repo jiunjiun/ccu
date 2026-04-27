@@ -5,6 +5,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+/// Initial line-buffer capacity. Real Claude JSONL lines vary wildly because
+/// the `content` array can hold large tool blocks; 8 KiB starts us above the
+/// median without forcing growth on small lines.
+const LINE_BUF_CAPACITY: usize = 8 * 1024;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageEntry {
@@ -28,16 +33,30 @@ pub fn parse_line(line: &str) -> Option<UsageEntry> {
     serde_json::from_str::<UsageEntry>(line).ok()
 }
 
+fn strip_trailing_newline(buf: &[u8]) -> &[u8] {
+    let buf = buf.strip_suffix(b"\n").unwrap_or(buf);
+    buf.strip_suffix(b"\r").unwrap_or(buf)
+}
+
 pub fn parse_file(path: &Path) -> anyhow::Result<Vec<UsageEntry>> {
     let f = File::open(path).map_err(|e| anyhow::anyhow!("open {}: {e}", path.display()))?;
-    let reader = BufReader::new(f);
+    let mut reader = BufReader::new(f);
     let mut out = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
+    // Reuse one buffer across all lines so `parse_file` doesn't allocate
+    // per-line. `from_slice` lets serde validate UTF-8 lazily inside the
+    // tokenizer instead of paying for `BufReader::lines()`'s upfront sweep.
+    let mut buf: Vec<u8> = Vec::with_capacity(LINE_BUF_CAPACITY);
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let line = strip_trailing_newline(&buf);
+        if line.is_empty() {
             continue;
         }
-        if let Some(e) = parse_line(&line) {
+        if let Ok(e) = serde_json::from_slice::<UsageEntry>(line) {
             out.push(e);
         }
     }

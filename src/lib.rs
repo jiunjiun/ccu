@@ -9,7 +9,7 @@ pub mod render;
 pub mod timezone;
 pub mod update;
 
-use chrono::{DateTime, Local, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 
 use crate::aggregate::{group_by_day, group_by_month};
 use crate::dedup::dedup_entries;
@@ -54,6 +54,13 @@ fn terminal_width() -> usize {
 }
 
 fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
+    load_entries_since(None)
+}
+
+/// JSONL files are append-only, so a file last modified before `threshold`
+/// can't contain newer entries. Skipping those files lets `ccu today` /
+/// `ccu month` avoid touching months of stale history on disk.
+fn load_entries_since(threshold: Option<DateTime<Utc>>) -> anyhow::Result<Vec<UsageEntry>> {
     use rayon::prelude::*;
     let root = scan_root()?;
 
@@ -63,7 +70,11 @@ fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
     // wins (matches ccusage for numeric parity).
     let mut files: Vec<(Option<DateTime<Utc>>, Vec<UsageEntry>)> = discover_jsonl(&root)
         .into_par_iter()
-        .map(|p| {
+        .filter(|(_, mtime)| match threshold {
+            Some(min) => mtime.is_none_or(|mt| mt >= min),
+            None => true,
+        })
+        .map(|(p, _)| {
             let entries = parse_file(&p).unwrap_or_default();
             let earliest = entries.iter().map(|e| e.timestamp).min();
             (earliest, entries)
@@ -76,8 +87,25 @@ fn load_entries() -> anyhow::Result<Vec<UsageEntry>> {
         (None, None) => std::cmp::Ordering::Equal,
     });
 
-    let entries: Vec<UsageEntry> = files.into_iter().flat_map(|(_, e)| e).collect();
+    let total: usize = files.iter().map(|(_, v)| v.len()).sum();
+    let mut entries: Vec<UsageEntry> = Vec::with_capacity(total);
+    for (_, v) in files {
+        entries.extend(v);
+    }
     Ok(dedup_entries(entries))
+}
+
+/// Local-midnight of `day` in UTC, minus one day of slack — any file last
+/// modified before this can't contain entries for `day` regardless of the
+/// user's timezone.
+fn day_threshold_utc(day: NaiveDate) -> DateTime<Utc> {
+    let local_midnight = day.and_hms_opt(0, 0, 0).expect("00:00 is a valid time");
+    let utc = Local
+        .from_local_datetime(&local_midnight)
+        .earliest()
+        .expect("Local midnight resolves to at least one UTC instant")
+        .with_timezone(&Utc);
+    utc - Duration::days(1)
 }
 
 fn sum_cost_where<F: Fn(DateTime<Utc>) -> bool>(entries: &[UsageEntry], predicate: F) -> f64 {
@@ -98,18 +126,22 @@ pub fn run_today(date: Option<&str>) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("invalid date {s:?}: {e}"))?,
         None => Local::now().date_naive(),
     };
-    let entries = load_entries()?;
-    print_bare_cost(sum_cost_where(&entries, |ts| local_day(ts) == target));
+    let entries = load_entries_since(Some(day_threshold_utc(target)))?;
+    print_bare_cost(sum_cost_where(&entries, |ts| {
+        Timezone::Local.day_naive(ts) == target
+    }));
     Ok(())
 }
 
 pub fn run_month(month: Option<&str>) -> anyhow::Result<()> {
     let target = match month {
-        Some(s) => validate_month(s)?.to_string(),
-        None => Local::now().format("%Y-%m").to_string(),
+        Some(s) => parse_month(s)?,
+        None => Timezone::Local.month_naive(Utc::now()),
     };
-    let entries = load_entries()?;
-    print_bare_cost(sum_cost_where(&entries, |ts| local_month(ts) == target));
+    let entries = load_entries_since(Some(day_threshold_utc(target)))?;
+    print_bare_cost(sum_cost_where(&entries, |ts| {
+        Timezone::Local.month_naive(ts) == target
+    }));
     Ok(())
 }
 
@@ -156,20 +188,13 @@ pub fn run_monthly(json: bool, compact: bool, tz: Option<&str>) -> anyhow::Resul
     Ok(())
 }
 
-fn local_day(ts: DateTime<Utc>) -> NaiveDate {
-    ts.with_timezone(&Local).date_naive()
-}
-
-fn local_month(ts: DateTime<Utc>) -> String {
-    ts.with_timezone(&Local).format("%Y-%m").to_string()
-}
-
-fn validate_month(s: &str) -> anyhow::Result<&str> {
-    if s.len() == 7
-        && s.as_bytes()[4] == b'-'
-        && NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d").is_ok()
-    {
-        return Ok(s);
+/// Parse `YYYY-MM` to the first-of-month `NaiveDate`, matching the shape
+/// `Timezone::month_naive` returns so callers can compare directly.
+fn parse_month(s: &str) -> anyhow::Result<NaiveDate> {
+    if s.len() == 7 && s.as_bytes()[4] == b'-' {
+        if let Ok(d) = NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d") {
+            return Ok(d);
+        }
     }
     anyhow::bail!("invalid month {s:?}; expected YYYY-MM")
 }

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -11,14 +12,20 @@ pub fn scan_root() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(home).join(".claude").join("projects"))
 }
 
-/// Recursively find all `.jsonl` files beneath `root`.
-pub fn discover_jsonl(root: &Path) -> Vec<PathBuf> {
+/// Recursively find all `.jsonl` files beneath `root`, paired with each
+/// file's mtime when available. The mtime is read from the same metadata
+/// `WalkDir` already fetches for `file_type`, so threading it through here
+/// avoids a second `stat` syscall in mtime-filtering callers.
+pub fn discover_jsonl(root: &Path) -> Vec<(PathBuf, Option<DateTime<Utc>>)> {
     WalkDir::new(root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("jsonl"))
-        .map(|e| e.path().to_path_buf())
+        .map(|e| {
+            let mtime = e.metadata().ok().and_then(|m| m.modified().ok()).map(Into::into);
+            (e.path().to_path_buf(), mtime)
+        })
         .collect()
 }
 
@@ -51,7 +58,7 @@ mod tests {
 
         let mut found: Vec<_> = discover_jsonl(tmp.path())
             .into_iter()
-            .map(|p| p.strip_prefix(tmp.path()).unwrap().to_path_buf())
+            .map(|(p, _)| p.strip_prefix(tmp.path()).unwrap().to_path_buf())
             .collect();
         found.sort();
 
