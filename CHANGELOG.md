@@ -7,10 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-27
+
+### Added
+
+- `ccu chart [DAYS]` subcommand: horizontal bar chart of recent daily costs
+  (default 30 days). Three-column box-bordered table (Date | Chart | Cost),
+  bar width auto-fits the terminal. On a TTY: bars get an azure 256-color
+  accent, the highest-cost day's value gets an amber highlight, and the
+  top-3 days are annotated outside the right border with `Top 1 👑` /
+  `Top 2` / `Top 3` labels.
+- `ccu update` subcommand: in-place self-updater that downloads the latest
+  GitHub Release tarball for this host's target triple via the `self_update`
+  crate (rustls, no OpenSSL).
+- Background version check on every invocation: prints a dim
+  `→ ccu vX.Y.Z available, run \`ccu update\` to upgrade` banner to stderr
+  when a newer release exists. At most one HTTPS request per day; cached
+  at `$XDG_CACHE_HOME/ccu/version.json` (or the platform equivalent via
+  `dirs::cache_dir()`).
+
+### Changed
+
+- **Big speedup for one-day / one-month queries** via JSONL file mtime
+  filter — append-only files older than the target window can't contain
+  matching entries, so they're skipped entirely. On a multi-month history:
+  - `ccu today` ≈ 13× faster
+  - `ccu month` ≈ 4× faster
+  - `ccu daily` / `ccu monthly` unchanged (still load full history)
+- `parse_file` now reuses one line buffer with `read_until` +
+  `serde_json::from_slice` instead of `BufReader::lines()`, skipping
+  per-line `String` allocation and the redundant UTF-8 sweep.
+- Parallel JSONL parsing via `rayon::par_iter`.
+- Bucket keys are now `chrono::NaiveDate` instead of `String`; ANSI color
+  codes consolidated into `src/palette.rs`; dedup uses 64-bit hash keys
+  instead of `(String, String)`. No behavioral changes.
+- Pricing tier regex tightened to
+  `opus-(4-([5-9]|\d{2,})|([5-9]|\d{2,})-)`. Future Opus minor-version
+  digit creep (`opus-4-10`, `opus-5-0`, …) now matches the $5 input tier
+  without being confused with the legacy `claude-3-opus-20240229` date
+  suffix.
+- Release profile uses `lto = "fat"` + `codegen-units = 1` for ~5–10%
+  runtime gain on the shipped binary.
+- Numeric table columns are right-aligned so digits line up under each
+  other.
+- `--json` / `--compact` flag descriptions appear in `--help`; the
+  internal `help` subcommand is hidden.
+
 ### Removed
 
 - Intel Mac (`x86_64-apple-darwin`) target from the release matrix.
-  Apple Silicon-only on the Mac side from the next tag onwards.
+  Apple Silicon-only on the Mac side from this release onwards.
   Existing v0.1.0 / v0.1.1 Intel binaries are unaffected (GitHub Releases
   are immutable). Users on Intel Mac can still `cargo install cc-usage`.
 
@@ -94,6 +140,7 @@ core data path, aligned to within ~0.003% on real datasets.
 - 73 tests total: 51 unit + 22 integration via `assert_cmd`.
 - 4 fixtures: single_day, with_duplicates, multi_model, cross_tz_boundary.
 
-[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jiunjiun/ccu/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jiunjiun/ccu/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jiunjiun/ccu/releases/tag/v0.1.0
