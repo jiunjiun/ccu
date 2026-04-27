@@ -23,7 +23,11 @@ pub fn discover_jsonl(root: &Path) -> Vec<(PathBuf, Option<DateTime<Utc>>)> {
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("jsonl"))
         .map(|e| {
-            let mtime = e.metadata().ok().and_then(|m| m.modified().ok()).map(Into::into);
+            let mtime = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(Into::into);
             (e.path().to_path_buf(), mtime)
         })
         .collect()
