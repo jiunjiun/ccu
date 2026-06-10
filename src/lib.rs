@@ -65,9 +65,10 @@ fn load_entries_since(threshold: Option<DateTime<Utc>>) -> anyhow::Result<Vec<Us
     let root = scan_root()?;
 
     // Parse files in parallel — they're independent JSONL files. Then sort
-    // by earliest entry timestamp before dedup so that when the same
-    // (msgId, requestId) appears across files, the FIRST-encountered entry
-    // wins (matches ccusage for numeric parity).
+    // by earliest entry timestamp before dedup. Dedup keeps the largest
+    // usage snapshot per (msgId, requestId) regardless of order; the sort
+    // still pins the kept position, exact-tie winner, and float summation
+    // order so output is deterministic (matches ccusage for numeric parity).
     let mut files: Vec<(Option<DateTime<Utc>>, Vec<UsageEntry>)> = discover_jsonl(&root)
         .into_par_iter()
         .filter(|(_, mtime)| match threshold {

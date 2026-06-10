@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Claude Fable 5 pricing tier: $10 input / $50 output, cache write
+  $12.50 (5m) / $20 (1h), cache read $1 per MTok. Previously priced at $0
+  as an unknown model.
+
+### Fixed
+
+- 1-hour cache writes now billed at 2x base input using the
+  `usage.cache_creation` breakdown (5m stays at 1.25x). Entries without the
+  breakdown keep the flat 5m rate, which is what they were billed at.
+- Dedup now keeps the largest usage snapshot per `(messageId, requestId)`
+  instead of the first. Fable-era Claude Code appends progressive snapshots
+  of a streaming response, so first-wins undercounted output tokens (one
+  observed day was 18% low). Verified equal to `ccusage` v20 on a frozen
+  log snapshot.
+
 ## [0.2.0] — 2026-04-27
 
 ### Added

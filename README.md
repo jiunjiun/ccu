@@ -13,7 +13,7 @@
 ## Features
 
 - **Fast.** Streams JSONL with `BufReader`, partial serde deserialize, single-pass dedup. ~1.3s on 1.3 GB / 166k entries (Apple Silicon).
-- **`ccusage`-compatible.** Same dedup rule (`(messageId, requestId)` with null-hash retention), same pricing tiers, same JSON schema (camelCase). Drop-in replacement in scripts.
+- **`ccusage`-compatible.** Same dedup rule (`(messageId, requestId)`, largest snapshot wins, null-hash retention), same pricing tiers, same JSON schema (camelCase). Drop-in replacement in scripts.
 - **Local-only.** No network, no daemon, no telemetry. Reads files; prints text.
 - **TZ-aware.** Bucket by `--tz` (any IANA zone) or system local. Same data, different days at midnight boundaries.
 - **Three output modes.** Bare float (`today`/`month`), table (`daily`/`monthly`), or JSON (`--json`).
