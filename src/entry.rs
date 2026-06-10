@@ -96,6 +96,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_cache_creation_breakdown_from_fable_entry() {
+        // Shape of a real claude-fable-5 log line: usage carries a
+        // cache_creation breakdown plus other new fields we ignore.
+        let line = r#"{"timestamp":"2026-06-10T03:00:00Z","requestId":"req_F","type":"assistant","message":{"id":"msg_F","model":"claude-fable-5","usage":{"input_tokens":4962,"cache_creation_input_tokens":6387,"cache_read_input_tokens":16602,"output_tokens":2239,"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":6387,"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","speed":"standard"}}}"#;
+        let e = parse_line(line).expect("parse");
+        let u = e.message.usage.expect("usage");
+        let cc = u.cache_creation.expect("cache_creation breakdown");
+        assert_eq!(cc.ephemeral_5m_input_tokens, 0);
+        assert_eq!(cc.ephemeral_1h_input_tokens, 6387);
+    }
+
+    #[test]
+    fn usage_without_breakdown_has_no_cache_creation() {
+        let e = parse_line(SAMPLE).expect("parse");
+        assert!(e.message.usage.expect("usage").cache_creation.is_none());
+    }
+
+    #[test]
     fn handles_entry_without_usage() {
         let line = r#"{"timestamp":"2026-04-24T03:00:00Z","type":"user","message":{"id":"msg_C","model":"claude-sonnet-4-5"}}"#;
         let e = parse_line(line).expect("parse");
