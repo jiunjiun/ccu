@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-09-04
+
+### Fixed
+
+- Claude Opus 5 was priced at the legacy $15 / $75 per MTok tier. The tier
+  regex required a `-` after the major version, so bare IDs like
+  `claude-opus-5` and `claude-opus-5[1m]` never matched it and fell through
+  to the Opus 4.1 rates. A 3x overcharge. Now $5 / $25.
+- Claude Sonnet 5 was priced at $3 / $15. The published rate is $2 / $10.
+  Sonnet 4.6 and earlier keep $3 / $15. A 1.5x overcharge.
+- Claude Fable 5.1 cache reads were priced at the standard 0.1x base input.
+  Fable 5.1 prices cache hits at 0.025x, $0.25 per MTok. A 4x overcharge.
+  Fable 5 keeps 0.1x.
+
+On a three-month log corpus these three bugs together overstated the total
+cost by 92%. Verified against `ccusage` 20.0.20 and the published pricing
+page: 116 of 116 model-days now match to $0.000000.
+
+### Changed
+
+- Price tiers derive output, cache write, and cache read from the base input
+  rate (5x, 1.25x, 2x, 0.1x) instead of repeating five literals per tier.
+  Fable 5.1 overrides `cache_read` as the one documented exception.
+- Bumped anyhow 1.0.104, chrono 0.4.45, clap 4.6.6, regex 1.13.1,
+  serde_json 1.0.151, tabled 0.21, dirs 6, self_update 0.44.
+- CI runners moved to `actions/checkout` v7 and `action-gh-release` v3
+  (Node 24 runtime).
+
 ## [0.3.0] — 2026-06-10
 
 ### Added
@@ -159,7 +187,8 @@ core data path, aligned to within ~0.003% on real datasets.
 - 73 tests total: 51 unit + 22 integration via `assert_cmd`.
 - 4 fixtures: single_day, with_duplicates, multi_model, cross_tz_boundary.
 
-[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jiunjiun/ccu/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jiunjiun/ccu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jiunjiun/ccu/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jiunjiun/ccu/compare/v0.1.0...v0.1.1
