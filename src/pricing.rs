@@ -11,6 +11,25 @@ pub struct Price {
     pub cache_read: f64,
 }
 
+impl Price {
+    /// Every published tier fixes the other four rates as multiples of the
+    /// base input rate: output 5x, 5-minute cache write 1.25x, 1-hour cache
+    /// write 2x, cache read 0.1x. Fable 5.1 is the lone exception and
+    /// overrides `cache_read`.
+    ///
+    /// `input / 10.0` rather than `input * 0.1`: the latter yields
+    /// 0.30000000000000004 for the $3 Sonnet tier.
+    fn from_input(input: f64) -> Self {
+        Price {
+            input,
+            output: input * 5.0,
+            cache_write_5m: input * 1.25,
+            cache_write_1h: input * 2.0,
+            cache_read: input / 10.0,
+        }
+    }
+}
+
 /// Per-duration breakdown of `cache_creation_input_tokens`. 1-hour cache
 /// writes bill at 2x base input vs 1.25x for 5-minute, so pricing the flat
 /// total at the 5m rate undercounts whenever Claude Code uses 1h caching.
@@ -46,61 +65,46 @@ fn table() -> &'static [Tier] {
     T.get_or_init(|| {
         vec![
             Tier {
+                // Fable 5.1 keeps the Fable 5 rates but prices cache hits at
+                // 0.025x base input ($0.25/MTok) instead of the usual 0.1x.
+                pattern: Regex::new(r"fable-5-1\b").unwrap(),
+                price: Price {
+                    cache_read: 0.25,
+                    ..Price::from_input(10.0)
+                },
+            },
+            Tier {
                 // Fable 5 (Jun 2026): $10/$50 flagship tier. Full 1M context
                 // at standard pricing — no long-context premium to model.
                 pattern: Regex::new(r"fable").unwrap(),
-                price: Price {
-                    input: 10.0,
-                    output: 50.0,
-                    cache_write_5m: 12.5,
-                    cache_write_1h: 20.0,
-                    cache_read: 1.0,
-                },
+                price: Price::from_input(10.0),
             },
             Tier {
                 // Why: Opus 4.5 (Nov 2025) shifted to a $5 input tier; older
-                // Opus models stay at $15. The trailing `-` separator after
-                // the major version is load-bearing — without it, `\d{2,}`
-                // would greedily match the date digits in legacy IDs like
-                // `claude-3-opus-20240229` and misprice them at the new tier.
-                pattern: Regex::new(r"opus-(4-([5-9]|\d{2,})|([5-9]|\d{2,})-)").unwrap(),
-                price: Price {
-                    input: 5.0,
-                    output: 25.0,
-                    cache_write_5m: 6.25,
-                    cache_write_1h: 10.0,
-                    cache_read: 0.5,
-                },
+                // Opus models stay at $15. The trailing `\b` is load-bearing:
+                // it stops `\d{2,3}` from matching the date digits in legacy
+                // IDs like `claude-3-opus-20240229`, while still admitting
+                // bare IDs like `claude-opus-5` and `claude-opus-5[1m]`.
+                pattern: Regex::new(r"opus-(4-([5-9]|\d{2,3})|[5-9]|\d{2,3})\b").unwrap(),
+                price: Price::from_input(5.0),
             },
             Tier {
                 pattern: Regex::new(r"opus").unwrap(),
-                price: Price {
-                    input: 15.0,
-                    output: 75.0,
-                    cache_write_5m: 18.75,
-                    cache_write_1h: 30.0,
-                    cache_read: 1.5,
-                },
+                price: Price::from_input(15.0),
+            },
+            Tier {
+                // Sonnet 5 (2026) sits at $2/$10; Sonnet 4.6 and earlier stay
+                // at $3/$15. Same `\b` guard as the Opus tier above.
+                pattern: Regex::new(r"sonnet-([5-9]|\d{2,3})\b").unwrap(),
+                price: Price::from_input(2.0),
             },
             Tier {
                 pattern: Regex::new(r"sonnet").unwrap(),
-                price: Price {
-                    input: 3.0,
-                    output: 15.0,
-                    cache_write_5m: 3.75,
-                    cache_write_1h: 6.0,
-                    cache_read: 0.3,
-                },
+                price: Price::from_input(3.0),
             },
             Tier {
                 pattern: Regex::new(r"haiku").unwrap(),
-                price: Price {
-                    input: 1.0,
-                    output: 5.0,
-                    cache_write_5m: 1.25,
-                    cache_write_1h: 2.0,
-                    cache_read: 0.1,
-                },
+                price: Price::from_input(1.0),
             },
         ]
     })
@@ -112,13 +116,7 @@ pub fn price_for(model: &str) -> Price {
             return t.price;
         }
     }
-    Price {
-        input: 0.0,
-        output: 0.0,
-        cache_write_5m: 0.0,
-        cache_write_1h: 0.0,
-        cache_read: 0.0,
-    }
+    Price::from_input(0.0)
 }
 
 pub fn cost_of(usage: &Usage, model: &str) -> f64 {
@@ -198,6 +196,63 @@ mod tests {
     }
 
     #[test]
+    fn opus_5_matches_new_tier() {
+        // Regression: `claude-opus-5` has no trailing `-`, so the old pattern
+        // missed it and billed it at the legacy $15 tier — 3x too high.
+        assert_eq!(price_for("claude-opus-5").input, 5.0);
+        // The 1M context window bills at standard rates, not a premium.
+        assert_eq!(price_for("claude-opus-5[1m]").input, 5.0);
+    }
+
+    #[test]
+    fn sonnet_5_matches_cheaper_tier() {
+        assert_eq!(
+            price_for("claude-sonnet-5"),
+            Price {
+                input: 2.0,
+                output: 10.0,
+                cache_write_5m: 2.5,
+                cache_write_1h: 4.0,
+                cache_read: 0.2
+            }
+        );
+        assert_eq!(price_for("claude-sonnet-5[1m]").input, 2.0);
+    }
+
+    #[test]
+    fn sonnet_4_x_stays_at_legacy_sonnet_tier() {
+        assert_eq!(price_for("claude-sonnet-4-6").input, 3.0);
+        assert_eq!(price_for("claude-sonnet-4-5").input, 3.0);
+    }
+
+    #[test]
+    fn legacy_dated_sonnet_ids_stay_at_legacy_sonnet_tier() {
+        // Guards the `\b` in the Sonnet 5 pattern: without it, `\d{2,3}`
+        // would match the leading date digits here and underprice these at
+        // the $2 tier.
+        assert_eq!(price_for("claude-3-5-sonnet-20241022").input, 3.0);
+        assert_eq!(price_for("claude-3-7-sonnet-20250219").input, 3.0);
+        assert_eq!(price_for("claude-sonnet-4-20250514").input, 3.0);
+    }
+
+    #[test]
+    fn fable_5_1_prices_cache_hits_at_a_quarter() {
+        assert_eq!(
+            price_for("claude-fable-5-1"),
+            Price {
+                input: 10.0,
+                output: 50.0,
+                cache_write_5m: 12.5,
+                cache_write_1h: 20.0,
+                cache_read: 0.25
+            }
+        );
+        assert_eq!(price_for("claude-fable-5-1[1m]").cache_read, 0.25);
+        // Fable 5 keeps the standard 0.1x cache hit rate.
+        assert_eq!(price_for("claude-fable-5").cache_read, 1.0);
+    }
+
+    #[test]
     fn opus_4_below_5_minor_falls_to_legacy() {
         // 4-0..4-4 don't exist in practice but if Anthropic ever ships one
         // it should price as legacy until we explicitly add a tier.
@@ -217,11 +272,6 @@ mod tests {
                 cache_read: 1.5
             }
         );
-    }
-
-    #[test]
-    fn sonnet_matches_sonnet_tier() {
-        assert_eq!(price_for("claude-sonnet-4-5").input, 3.0);
     }
 
     #[test]

@@ -200,16 +200,23 @@ Schema is byte-compatible with `ccusage daily --json` / `ccusage monthly --json`
 
 ## Pricing
 
-Four hardcoded tiers (USD per 1M tokens), regex-matched against the model name in order:
+Seven hardcoded tiers (USD per 1M tokens), regex-matched against the model name in order. The first pattern that matches wins:
 
-| Pattern | Input | Output | Cache Write | Cache Read |
-|---------|-------|--------|-------------|------------|
-| `opus-4-[5-9]` | 5.00 | 25.00 | 6.25 | 0.50 |
-| `opus` | 15.00 | 75.00 | 18.75 | 1.50 |
-| `sonnet` | 3.00 | 15.00 | 3.75 | 0.30 |
-| `haiku` | 1.00 | 5.00 | 1.25 | 0.10 |
+| Pattern | Input | Output | Cache Write 5m | Cache Write 1h | Cache Read |
+|---------|-------|--------|----------------|----------------|------------|
+| `fable-5-1\b` | 10.00 | 50.00 | 12.50 | 20.00 | 0.25 |
+| `fable` | 10.00 | 50.00 | 12.50 | 20.00 | 1.00 |
+| `opus-(4-([5-9]\|\d{2,3})\|[5-9]\|\d{2,3})\b` | 5.00 | 25.00 | 6.25 | 10.00 | 0.50 |
+| `opus` | 15.00 | 75.00 | 18.75 | 30.00 | 1.50 |
+| `sonnet-([5-9]\|\d{2,3})\b` | 2.00 | 10.00 | 2.50 | 4.00 | 0.20 |
+| `sonnet` | 3.00 | 15.00 | 3.75 | 6.00 | 0.30 |
+| `haiku` | 1.00 | 5.00 | 1.25 | 2.00 | 0.10 |
 
-`opus-4-[5-9]` is deliberately checked first; `claude-opus-4-5`, `4-6`, `4-7` all match it. Anything else with `opus` (e.g., `claude-3-opus`) falls through to the legacy tier.
+Every tier except Fable 5.1 derives its four other rates from the input rate: output 5x, 5m cache write 1.25x, 1h cache write 2x, cache read 0.1x. Fable 5.1 keeps the Fable 5 rates but prices cache hits at 0.25.
+
+Version-specific patterns are deliberately checked before their family fallback: `claude-opus-4-5`, `4-6`, `4-7`, `claude-opus-5` all hit the $5 tier, and `claude-sonnet-5` hits the $2 tier. Anything else with `opus` or `sonnet` (e.g., `claude-3-opus`, `claude-sonnet-4-5`) falls through to the legacy tier. The trailing `\b` stops `\d{2,3}` from matching the date digits in legacy IDs like `claude-3-opus-20240229`, while still admitting bare IDs like `claude-opus-5[1m]`.
+
+A model name that matches no pattern is priced at zero.
 
 Anthropic doesn't currently advertise prices for `opus-4-0` or `opus-4-1` separately; if you've used either model, file an issue with their actual price and the regex can be widened.
 
@@ -279,7 +286,7 @@ cargo build --release       # binary at target/release/ccu
 time ./target/release/ccu daily --json > /dev/null
 ```
 
-73 tests cover pricing regex ordering, dedup with null-hash, timezone bucketing across midnight, JSON schema shape, CLI surface (subcommands, flags, error paths), and the table renderer's column structure / Total row / model-name shortening.
+96 tests (74 unit, 22 integration) cover pricing regex ordering, dedup with null-hash, timezone bucketing across midnight, JSON schema shape, CLI surface (subcommands, flags, error paths), and the table renderer's column structure / Total row / model-name shortening.
 
 ### Project layout
 
