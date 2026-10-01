@@ -30,7 +30,7 @@ tabled        = "0.21"
 anyhow        = "1"
 regex         = "1"
 terminal_size = "0.4"
-dirs          = "6"
+dirs          = "7"
 rayon         = "1"
 self_update   = { version = "0.44", default-features = false, features = ["ureq", "rustls", "compression-flate2", "compression-zip-deflate", "archive-tar", "archive-zip"] }
 
