@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-10-25
+
 ### Fixed
 
 - Claude Opus 5.5 was priced at the Opus 5 tier ($5 / $25, cache read
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Verified against `ccusage` 20.0.42 and the published pricing page: 79 of
 79 model-days match to $0.000000.
+
+### Changed
+
+- Dependabot no longer requests the `dependencies`, `rust`, and
+  `github-actions` labels. None of them exist in the repo.
 
 ## [0.3.1] — 2026-09-04
 
@@ -202,7 +209,8 @@ core data path, aligned to within ~0.003% on real datasets.
 - 73 tests total: 51 unit + 22 integration via `assert_cmd`.
 - 4 fixtures: single_day, with_duplicates, multi_model, cross_tz_boundary.
 
-[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/jiunjiun/ccu/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/jiunjiun/ccu/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jiunjiun/ccu/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jiunjiun/ccu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jiunjiun/ccu/compare/v0.1.1...v0.2.0
