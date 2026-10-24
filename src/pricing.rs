@@ -14,8 +14,8 @@ pub struct Price {
 impl Price {
     /// Every published tier fixes the other four rates as multiples of the
     /// base input rate: output 5x, 5-minute cache write 1.25x, 1-hour cache
-    /// write 2x, cache read 0.1x. Fable 5.1 is the lone exception and
-    /// overrides `cache_read`.
+    /// write 2x, cache read 0.1x. Fable 5.1, Opus 5.5, and Sonnet 5.5 are
+    /// the exceptions and override `cache_read`.
     ///
     /// `input / 10.0` rather than `input * 0.1`: the latter yields
     /// 0.30000000000000004 for the $3 Sonnet tier.
@@ -80,6 +80,14 @@ fn table() -> &'static [Tier] {
                 price: Price::from_input(10.0),
             },
             Tier {
+                // Opus 5.5: $4/$20, cache hits at 0.05x base input.
+                pattern: Regex::new(r"opus-5-5\b").unwrap(),
+                price: Price {
+                    cache_read: 0.2,
+                    ..Price::from_input(4.0)
+                },
+            },
+            Tier {
                 // Why: Opus 4.5 (Nov 2025) shifted to a $5 input tier; older
                 // Opus models stay at $15. The trailing `\b` is load-bearing:
                 // it stops `\d{2,3}` from matching the date digits in legacy
@@ -93,6 +101,15 @@ fn table() -> &'static [Tier] {
                 price: Price::from_input(15.0),
             },
             Tier {
+                // Sonnet 5.5 keeps the Sonnet 5 rates but prices cache hits
+                // at 0.05x base input.
+                pattern: Regex::new(r"sonnet-5-5\b").unwrap(),
+                price: Price {
+                    cache_read: 0.1,
+                    ..Price::from_input(2.0)
+                },
+            },
+            Tier {
                 // Sonnet 5 (2026) sits at $2/$10; Sonnet 4.6 and earlier stay
                 // at $3/$15. Same `\b` guard as the Opus tier above.
                 pattern: Regex::new(r"sonnet-([5-9]|\d{2,3})\b").unwrap(),
@@ -103,11 +120,30 @@ fn table() -> &'static [Tier] {
                 price: Price::from_input(3.0),
             },
             Tier {
+                // Haiku 5.5: $0.10/$0.50 for prompts up to 100k tokens. See
+                // `HAIKU_5_5_LONG_PROMPT` for the higher rate.
+                pattern: Regex::new(HAIKU_5_5).unwrap(),
+                price: Price::from_input(HAIKU_5_5_INPUT),
+            },
+            Tier {
                 pattern: Regex::new(r"haiku").unwrap(),
                 price: Price::from_input(1.0),
             },
         ]
     })
+}
+
+const HAIKU_5_5: &str = r"haiku-5-5\b";
+const HAIKU_5_5_INPUT: f64 = 0.1;
+/// Haiku 5.5 bills the whole request, output included, at 5x every rate
+/// when its prompt (input plus cache writes and cache reads) is over this
+/// many tokens. Each request is priced on its own.
+const HAIKU_5_5_LONG_PROMPT: u64 = 100_000;
+
+fn is_haiku_5_5(model: &str) -> bool {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(HAIKU_5_5).unwrap())
+        .is_match(model)
 }
 
 pub fn price_for(model: &str) -> Price {
@@ -120,7 +156,13 @@ pub fn price_for(model: &str) -> Price {
 }
 
 pub fn cost_of(usage: &Usage, model: &str) -> f64 {
-    let p = price_for(model);
+    let prompt =
+        usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
+    let p = if prompt > HAIKU_5_5_LONG_PROMPT && is_haiku_5_5(model) {
+        Price::from_input(HAIKU_5_5_INPUT * 5.0)
+    } else {
+        price_for(model)
+    };
     // Entries without a breakdown predate 1h caching in Claude Code, so the
     // flat total at the 5m rate is the price they were actually billed at.
     let cache_write = match &usage.cache_creation {
@@ -250,6 +292,75 @@ mod tests {
         assert_eq!(price_for("claude-fable-5-1[1m]").cache_read, 0.25);
         // Fable 5 keeps the standard 0.1x cache hit rate.
         assert_eq!(price_for("claude-fable-5").cache_read, 1.0);
+    }
+
+    #[test]
+    fn opus_5_5_and_sonnet_5_5_price_cache_hits_at_a_twentieth() {
+        assert_eq!(
+            price_for("claude-opus-5-5"),
+            Price {
+                input: 4.0,
+                output: 20.0,
+                cache_write_5m: 5.0,
+                cache_write_1h: 8.0,
+                cache_read: 0.2
+            }
+        );
+        assert_eq!(
+            price_for("claude-sonnet-5-5"),
+            Price {
+                input: 2.0,
+                output: 10.0,
+                cache_write_5m: 2.5,
+                cache_write_1h: 4.0,
+                cache_read: 0.1
+            }
+        );
+        // Opus 5 and Sonnet 5 keep the standard 0.1x cache hit rate.
+        assert_eq!(price_for("claude-opus-5").cache_read, 0.5);
+        assert_eq!(price_for("claude-sonnet-5").cache_read, 0.2);
+    }
+
+    #[test]
+    fn haiku_5_5_matches_cheaper_tier() {
+        assert_eq!(
+            price_for("claude-haiku-5-5"),
+            Price {
+                input: 0.1,
+                output: 0.5,
+                cache_write_5m: 0.125,
+                cache_write_1h: 0.2,
+                cache_read: 0.01
+            }
+        );
+    }
+
+    #[test]
+    fn haiku_5_5_prompt_over_100k_bills_every_bucket_at_5x() {
+        let usage = |input, output, write, read| Usage {
+            input_tokens: input,
+            output_tokens: output,
+            cache_creation_input_tokens: write,
+            cache_read_input_tokens: read,
+            cache_creation: None,
+        };
+        let close = |got: f64, expected: f64| {
+            assert!((got - expected).abs() < 1e-12, "{got} vs {expected}")
+        };
+        // Exactly 100,000 prompt tokens stays at the low rate.
+        close(cost_of(&usage(100_000, 0, 0, 0), "claude-haiku-5-5"), 0.01);
+        // Prompt length counts input, cache writes, and cache reads together.
+        close(
+            cost_of(&usage(1, 1_000, 60_000, 50_000), "claude-haiku-5-5"),
+            (0.5 + 1_000.0 * 2.5 + 60_000.0 * 0.625 + 50_000.0 * 0.05) / 1_000_000.0,
+        );
+        // Output tokens do not count toward the prompt length.
+        close(
+            cost_of(&usage(1, 150_000, 0, 0), "claude-haiku-5-5"),
+            0.0750001,
+        );
+        // Haiku 4.5 has no long-prompt tier.
+        close(cost_of(&usage(150_000, 0, 0, 0), "claude-haiku-4-5"), 0.15);
     }
 
     #[test]

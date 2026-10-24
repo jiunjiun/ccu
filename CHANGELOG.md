@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Opus 5.5 was priced at the Opus 5 tier ($5 / $25, cache read
+  $0.50). The published rate is $4 / $20 with cache hits at 0.05x base
+  input, $0.20 per MTok. About a 1.9x overcharge on real logs.
+- Claude Sonnet 5.5 cache reads were priced at 0.1x base input. Sonnet 5.5
+  prices cache hits at 0.05x, $0.10 per MTok. Sonnet 5 keeps 0.1x.
+- Claude Haiku 5.5 was priced at the Haiku 4.5 tier ($1 / $5). The
+  published rate is $0.10 / $0.50 for prompts up to 100,000 tokens. A
+  request whose prompt (input plus cache writes and cache reads) is over
+  100,000 tokens bills every bucket, output included, at 5x: $0.50 / $2.50.
+
+Verified against `ccusage` 20.0.42 and the published pricing page: 79 of
+79 model-days match to $0.000000.
+
 ## [0.3.1] — 2026-09-04
 
 ### Fixed
